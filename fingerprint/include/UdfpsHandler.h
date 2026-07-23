@@ -25,6 +25,14 @@ class UdfpsHandler {
     virtual void onAuthenticationSucceeded() {};
     virtual void onAuthenticationFailed() {};
     virtual void cancel() {};
+
+    // ✅ ADD THESE - Enrollment lifecycle methods
+    virtual void preEnroll() {};
+    virtual void enroll() {};
+    virtual void postEnroll() {};
+
+    // ✅ ADD THIS - The new enrollment progress method
+    virtual void onEnrollmentProgress(int32_t enrollmentId, int32_t remaining) {};
 };
 
 struct UdfpsHandlerFactory {
