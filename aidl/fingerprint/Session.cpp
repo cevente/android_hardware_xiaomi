@@ -34,10 +34,299 @@ Session::Session(fingerprint_device_t* device, UdfpsHandler* udfpsHandler, int u
     mDevice->set_active_group(mDevice, mUserId, path.c_str());
 }
 
-// ... other Session methods ...
+ndk::ScopedAStatus Session::generateChallenge() {
+    uint64_t challenge = mDevice->pre_enroll(mDevice);
+    ALOGI("generateChallenge: %ld", challenge);
+    mCb->onChallengeGenerated(challenge);
+
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::revokeChallenge(int64_t challenge) {
+    ALOGI("revokeChallenge: %ld", challenge);
+    mDevice->post_enroll(mDevice);
+    mCb->onChallengeRevoked(challenge);
+
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::enroll(const HardwareAuthToken& hat,
+                                   std::shared_ptr<ICancellationSignal>* out) {
+    hw_auth_token_t authToken;
+    translate(hat, authToken);
+    int error = mDevice->enroll(mDevice, &authToken, mUserId, 60);
+    if (error) {
+        ALOGE("enroll failed: %d", error);
+        mCb->onError(Error::UNABLE_TO_PROCESS, error);
+    }
+
+    *out = SharedRefBase::make<CancellationSignal>(this);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::authenticate(int64_t operationId,
+                                         std::shared_ptr<ICancellationSignal>* out) {
+    checkSensorLockout();
+    int error = mDevice->authenticate(mDevice, operationId, mUserId);
+    if (error) {
+        ALOGE("authenticate failed: %d", error);
+        mCb->onError(Error::UNABLE_TO_PROCESS, error);
+    }
+
+    *out = SharedRefBase::make<CancellationSignal>(this);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::detectInteraction(std::shared_ptr<ICancellationSignal>* out) {
+    ALOGD("Detect interaction is not supported");
+    mCb->onError(Error::UNABLE_TO_PROCESS, 0 /* vendorCode */);
+
+    *out = SharedRefBase::make<CancellationSignal>(this);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::enumerateEnrollments() {
+    int error = mDevice->enumerate(mDevice);
+    if (error) {
+        ALOGE("enumerate failed: %d", error);
+    }
+
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::removeEnrollments(const std::vector<int32_t>& enrollmentIds) {
+    ALOGI("removeEnrollments, size: %zu", enrollmentIds.size());
+
+    for (int32_t fid : enrollmentIds) {
+        int error = mDevice->remove(mDevice, mUserId, fid);
+        if (error) {
+            ALOGE("remove failed: %d", error);
+        }
+    }
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::getAuthenticatorId() {
+    uint64_t auth_id = mDevice->get_authenticator_id(mDevice);
+    ALOGI("getAuthenticatorId: %ld", auth_id);
+    mCb->onAuthenticatorIdRetrieved(auth_id);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::invalidateAuthenticatorId() {
+    uint64_t auth_id = mDevice->get_authenticator_id(mDevice);
+    ALOGI("invalidateAuthenticatorId: %ld", auth_id);
+    mCb->onAuthenticatorIdInvalidated(auth_id);
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::resetLockout(const HardwareAuthToken& /*hat*/) {
+    clearLockout(true);
+    if (mIsLockoutTimerStarted) mIsLockoutTimerAborted = true;
+
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::onPointerDown(int32_t /*pointerId*/, int32_t x, int32_t y, float minor,
+                                          float major) {
+    if (mUdfpsHandler) {
+        mUdfpsHandler->onFingerDown(x, y, minor, major);
+    }
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::onPointerUp(int32_t /*pointerId*/) {
+    if (mUdfpsHandler) {
+        mUdfpsHandler->onFingerUp();
+    }
+
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::onUiReady() {
+    // TODO: stub
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::authenticateWithContext(
+        int64_t operationId, const common::OperationContext& /*context*/,
+        std::shared_ptr<common::ICancellationSignal>* out) {
+    return authenticate(operationId, out);
+}
+
+ndk::ScopedAStatus Session::enrollWithContext(const keymaster::HardwareAuthToken& hat,
+                                              const common::OperationContext& /*context*/,
+                                              std::shared_ptr<common::ICancellationSignal>* out) {
+    return enroll(hat, out);
+}
+
+ndk::ScopedAStatus Session::detectInteractionWithContext(
+        const common::OperationContext& /*context*/,
+        std::shared_ptr<common::ICancellationSignal>* out) {
+    return detectInteraction(out);
+}
+
+ndk::ScopedAStatus Session::onPointerDownWithContext(const PointerContext& context) {
+    return onPointerDown(context.pointerId, context.x, context.y, context.minor, context.major);
+}
+
+ndk::ScopedAStatus Session::onPointerUpWithContext(const PointerContext& context) {
+    return onPointerUp(context.pointerId);
+}
+
+ndk::ScopedAStatus Session::onContextChanged(const common::OperationContext& /*context*/) {
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::onPointerCancelWithContext(const PointerContext& /*context*/) {
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::setIgnoreDisplayTouches(bool /*shouldIgnore*/) {
+    return ndk::ScopedAStatus::ok();
+}
+
+ndk::ScopedAStatus Session::cancel() {
+    if (mUdfpsHandler) {
+        mUdfpsHandler->cancel();
+    }
+
+    int ret = mDevice->cancel(mDevice);
+
+    if (ret == 0) {
+        mCb->onError(Error::CANCELED, 0 /* vendorCode */);
+        return ndk::ScopedAStatus::ok();
+    }
+
+    return ndk::ScopedAStatus::fromServiceSpecificError(ret);
+}
+
+ndk::ScopedAStatus Session::close() {
+    mClosed = true;
+    mCb->onSessionClosed();
+    AIBinder_DeathRecipient_delete(mDeathRecipient);
+    return ndk::ScopedAStatus::ok();
+}
+
+// ============================================================================
+// MISSING IMPLEMENTATIONS - ADD THESE
+// ============================================================================
+
+bool Session::isClosed() {
+    return mClosed;
+}
+
+binder_status_t Session::linkToDeath(AIBinder* binder) {
+    return AIBinder_linkToDeath(binder, mDeathRecipient, this);
+}
+
+// Translate from errors returned by traditional HAL (see fingerprint.h) to
+// AIDL-compliant Error
+Error Session::VendorErrorFilter(int32_t error, int32_t* vendorCode) {
+    *vendorCode = 0;
+
+    switch (error) {
+        case FINGERPRINT_ERROR_HW_UNAVAILABLE:
+            return Error::HW_UNAVAILABLE;
+        case FINGERPRINT_ERROR_UNABLE_TO_PROCESS:
+            return Error::UNABLE_TO_PROCESS;
+        case FINGERPRINT_ERROR_TIMEOUT:
+            return Error::TIMEOUT;
+        case FINGERPRINT_ERROR_NO_SPACE:
+            return Error::NO_SPACE;
+        case FINGERPRINT_ERROR_CANCELED:
+            return Error::CANCELED;
+        case FINGERPRINT_ERROR_UNABLE_TO_REMOVE:
+            return Error::UNABLE_TO_REMOVE;
+        case FINGERPRINT_ERROR_LOCKOUT: {
+            *vendorCode = FINGERPRINT_ERROR_LOCKOUT;
+            return Error::VENDOR;
+        }
+        default:
+            if (error >= FINGERPRINT_ERROR_VENDOR_BASE) {
+                // vendor specific code.
+                *vendorCode = error - FINGERPRINT_ERROR_VENDOR_BASE;
+                return Error::VENDOR;
+            }
+    }
+    ALOGE("Unknown error from fingerprint vendor library: %d", error);
+    return Error::UNABLE_TO_PROCESS;
+}
+
+// Translate acquired messages returned by traditional HAL (see fingerprint.h)
+// to AIDL-compliant AcquiredInfo
+AcquiredInfo Session::VendorAcquiredFilter(int32_t info, int32_t* vendorCode) {
+    *vendorCode = 0;
+
+    switch (info) {
+        case FINGERPRINT_ACQUIRED_GOOD:
+            return AcquiredInfo::GOOD;
+        case FINGERPRINT_ACQUIRED_PARTIAL:
+            return AcquiredInfo::PARTIAL;
+        case FINGERPRINT_ACQUIRED_INSUFFICIENT:
+            return AcquiredInfo::INSUFFICIENT;
+        case FINGERPRINT_ACQUIRED_IMAGER_DIRTY:
+            return AcquiredInfo::SENSOR_DIRTY;
+        case FINGERPRINT_ACQUIRED_TOO_SLOW:
+            return AcquiredInfo::TOO_SLOW;
+        case FINGERPRINT_ACQUIRED_TOO_FAST:
+            return AcquiredInfo::TOO_FAST;
+        default:
+            if (info >= FINGERPRINT_ACQUIRED_VENDOR_BASE) {
+                // vendor specific code.
+                *vendorCode = info - FINGERPRINT_ACQUIRED_VENDOR_BASE;
+                return AcquiredInfo::VENDOR;
+            }
+    }
+    ALOGE("Unknown acquired message from fingerprint vendor library: %d", info);
+    return AcquiredInfo::UNKNOWN;
+}
+
+bool Session::checkSensorLockout() {
+    LockoutTracker::LockoutMode lockoutMode = mLockoutTracker.getMode();
+    if (lockoutMode == LockoutTracker::LockoutMode::kPermanent) {
+        ALOGE("Fail: lockout permanent");
+        mCb->onLockoutPermanent();
+        mIsLockoutTimerAborted = true;
+        return true;
+    }
+    if (lockoutMode == LockoutTracker::LockoutMode::kTimed) {
+        int64_t timeLeft = mLockoutTracker.getLockoutTimeLeft();
+        ALOGE("Fail: lockout timed: %ld", timeLeft);
+        mCb->onLockoutTimed(timeLeft);
+        if (!mIsLockoutTimerStarted) startLockoutTimer(timeLeft);
+        return true;
+    }
+    return false;
+}
+
+void Session::clearLockout(bool clearAttemptCounter) {
+    mLockoutTracker.reset(clearAttemptCounter);
+    mCb->onLockoutCleared();
+}
+
+void Session::startLockoutTimer(int64_t timeout) {
+    std::function<void()> action = std::bind(&Session::lockoutTimerExpired, this);
+    std::thread([timeout, action]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(timeout));
+        action();
+    }).detach();
+
+    mIsLockoutTimerStarted = true;
+}
+
+void Session::lockoutTimerExpired() {
+    if (!mIsLockoutTimerAborted) clearLockout(false);
+
+    mIsLockoutTimerStarted = false;
+    mIsLockoutTimerAborted = false;
+}
+
+// ============================================================================
+// notify() - with the onEnrollmentProgress call
+// ============================================================================
 
 void Session::notify(const fingerprint_msg_t* msg) {
-    // const uint64_t devId = reinterpret_cast<uint64_t>(mDevice);
     switch (msg->type) {
         case FINGERPRINT_ERROR: {
             int32_t vendorCode = 0;
@@ -47,15 +336,11 @@ void Session::notify(const fingerprint_msg_t* msg) {
         } break;
         case FINGERPRINT_ACQUIRED: {
             int32_t vendorCode = 0;
-            AcquiredInfo result =
-                    VendorAcquiredFilter(msg->data.acquired.acquired_info, &vendorCode);
+            AcquiredInfo result = VendorAcquiredFilter(msg->data.acquired.acquired_info, &vendorCode);
             ALOGD("onAcquired(%hhd, %d)", result, vendorCode);
             if (mUdfpsHandler) {
                 mUdfpsHandler->onAcquired(static_cast<int32_t>(result), vendorCode);
             }
-            // don't process vendor messages further since frameworks try to disable
-            // udfps display mode on vendor acquired messages but our sensors send a
-            // vendor message during processing...
             if (result != AcquiredInfo::VENDOR) {
                 mCb->onAcquired(result, vendorCode);
             }
@@ -64,7 +349,7 @@ void Session::notify(const fingerprint_msg_t* msg) {
             ALOGD("onEnrollResult(fid=%d, gid=%d, rem=%d)", msg->data.enroll.finger.fid,
                   msg->data.enroll.finger.gid, msg->data.enroll.samples_remaining);
             
-            // ✅ ADD THIS: Notify UDFPS handler about enrollment progress
+            // ✅ Call UdfpsHandler with enrollment progress
             if (mUdfpsHandler) {
                 mUdfpsHandler->onEnrollmentProgress(
                     msg->data.enroll.finger.fid,
