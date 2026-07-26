@@ -111,7 +111,7 @@ class UdfpsSensor : public OneShotSensor {
 
   private:
     void interruptPoll();
-    bool openTouchInput();
+    static int openTouchInput();
     void processInputEvent(const struct input_event& ev);
     void sendFodEvent(bool pressed, int x = 0, int y = 0);
 
