@@ -17,12 +17,8 @@
 #include "SensorsSubHal.h"
 
 #include <android/hardware/sensors/2.1/types.h>
+#include <cutils/properties.h>
 #include <log/log.h>
-
-#include <sstream>
-#include <map>
-#include <memory>
-#include <string>
 
 using ::android::hardware::sensors::V2_1::implementation::ISensorsSubHal;
 using ::android::hardware::sensors::V2_1::subhal::implementation::SensorsSubHal;
@@ -38,7 +34,15 @@ using ::android::hardware::Void;
 using ::android::hardware::sensors::V2_0::implementation::ScopedWakelock;
 
 SensorsSubHal::SensorsSubHal() : mCallback(nullptr), mNextHandle(1) {
-    AddSensor<UdfpsSensor>();
+    if (property_get_bool("ro.vendor.sensors.xiaomi.double_tap", false)) {
+        AddSensor<DoubleTapSensor>();
+    }
+    if (property_get_bool("ro.vendor.sensors.xiaomi.single_tap", false)) {
+        AddSensor<SingleTapSensor>();
+    }
+    if (property_get_bool("ro.vendor.sensors.xiaomi.udfps", false)) {
+        AddSensor<UdfpsSensor>();
+    }
 }
 
 Return<void> SensorsSubHal::getSensorsList_2_1(ISensors::getSensorsList_2_1_cb _hidl_cb) {
@@ -90,12 +94,13 @@ Return<Result> SensorsSubHal::injectSensorData_2_1(const Event& event) {
     if (sensor != mSensors.end()) {
         return sensor->second->injectEvent(event);
     }
+
     return Result::BAD_VALUE;
 }
 
 Return<void> SensorsSubHal::registerDirectChannel(const SharedMemInfo& /* mem */,
                                                   ISensors::registerDirectChannel_cb _hidl_cb) {
-    _hidl_cb(Result::INVALID_OPERATION, -1);
+    _hidl_cb(Result::INVALID_OPERATION, -1 /* channelHandle */);
     return Return<void>();
 }
 
@@ -106,7 +111,7 @@ Return<Result> SensorsSubHal::unregisterDirectChannel(int32_t /* channelHandle *
 Return<void> SensorsSubHal::configDirectReport(int32_t /* sensorHandle */,
                                                int32_t /* channelHandle */, RateLevel /* rate */,
                                                ISensors::configDirectReport_cb _hidl_cb) {
-    _hidl_cb(Result::INVALID_OPERATION, 0);
+    _hidl_cb(Result::INVALID_OPERATION, 0 /* reportToken */);
     return Return<void>();
 }
 
