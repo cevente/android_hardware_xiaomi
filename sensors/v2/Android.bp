@@ -16,6 +16,7 @@ cc_library_shared {
         "android.hardware.sensors@2.0",
         "android.hardware.sensors@2.0-ScopedWakelock",
         "android.hardware.sensors@2.1",
+        "libbase",           // Added for android::base::unique_fd and other utilities
         "libcutils",
         "libfmq",
         "libhardware",
@@ -23,13 +24,30 @@ cc_library_shared {
         "liblog",
         "libpower",
         "libutils",
+        "libbinder",         // Added for Binder support
     ],
     static_libs: [
         "android.hardware.sensors@1.0-convert",
         "android.hardware.sensors@2.X-multihal",
     ],
+    header_libs: [
+        "hardware_libhardware_headers",  // Added for hardware headers
+    ],
     cflags: [
         "-DLOG_TAG=\"sensors.xiaomi\"",
+        "-Wall",
+        "-Werror",
+        "-Wextra",
+        "-Wno-unused-parameter",
+    ],
+    cppflags: [
+        "-std=c++17",        // Added for C++17 features (std::atomic, etc.)
+    ],
+    export_include_dirs: [
+        ".",                 // Added to export headers
+    ],
+    local_include_dirs: [
+        ".",                 // Added for local includes
     ],
     vendor: true,
 }
