@@ -58,41 +58,6 @@ static bool readBool(int fd, bool seek) {
     return c != '0';
 }
 
-static int openTouchInput() {
-    int fd = -1;
-    DIR* dir = opendir("/dev/input");
-
-    if (dir != nullptr) {
-        struct dirent* ent;
-
-        while ((ent = readdir(dir)) != nullptr) {
-            if (ent->d_type == DT_CHR) {
-                std::string absolute_path = std::string("/dev/input/") + ent->d_name;
-                char name[80] = {0};
-
-                fd = open(absolute_path.c_str(), O_RDWR);
-                if (fd < 0) {
-                    continue;
-                }
-
-                if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), &name) > 0) {
-                    if (strcmp(name, "fts_ts") == 0 || strcmp(name, "fts") == 0 || 
-                        strcmp(name, "goodix_ts") == 0 || strcmp(name, "NVTCapacitiveTouchScreen") == 0 ||
-                        strstr(name, "touch") != nullptr) {
-                        ALOGI("Found touchscreen: %s at %s", name, absolute_path.c_str());
-                        break;
-                    }
-                }
-
-                close(fd);
-                fd = -1;
-            }
-        }
-        closedir(dir);
-    }
-    return fd;
-}
-
 }  // anonymous namespace
 
 namespace android {
@@ -256,6 +221,42 @@ OneShotSensor::OneShotSensor(int32_t sensorHandle, ISensorsEventCallback* callba
     mSensorInfo.minDelay = -1;
     mSensorInfo.maxDelay = 0;
     mSensorInfo.flags |= SensorFlagBits::ONE_SHOT_MODE;
+}
+
+// UdfpsSensor implementation
+int UdfpsSensor::openTouchInput() {
+    int fd = -1;
+    DIR* dir = opendir("/dev/input");
+
+    if (dir != nullptr) {
+        struct dirent* ent;
+
+        while ((ent = readdir(dir)) != nullptr) {
+            if (ent->d_type == DT_CHR) {
+                std::string absolute_path = std::string("/dev/input/") + ent->d_name;
+                char name[80] = {0};
+
+                fd = open(absolute_path.c_str(), O_RDWR);
+                if (fd < 0) {
+                    continue;
+                }
+
+                if (ioctl(fd, EVIOCGNAME(sizeof(name) - 1), &name) > 0) {
+                    if (strcmp(name, "fts_ts") == 0 || strcmp(name, "fts") == 0 || 
+                        strcmp(name, "goodix_ts") == 0 || strcmp(name, "NVTCapacitiveTouchScreen") == 0 ||
+                        strstr(name, "touch") != nullptr) {
+                        ALOGI("Found touchscreen: %s at %s", name, absolute_path.c_str());
+                        break;
+                    }
+                }
+
+                close(fd);
+                fd = -1;
+            }
+        }
+        closedir(dir);
+    }
+    return fd;
 }
 
 UdfpsSensor::UdfpsSensor(int32_t sensorHandle, ISensorsEventCallback* callback)
