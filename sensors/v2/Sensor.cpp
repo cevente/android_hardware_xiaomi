@@ -26,6 +26,15 @@
 #include <dirent.h>
 #include <unistd.h>
 
+// Define missing key codes for fingerprint detection
+#ifndef KEY_FINGERPRINT
+#define KEY_FINGERPRINT 0x2A
+#endif
+
+#ifndef BTN_INFO
+#define BTN_INFO 0x2A
+#endif
+
 namespace {
 
 static bool readBool(int fd, bool seek) {
@@ -383,15 +392,31 @@ void UdfpsSensor::run() {
 void UdfpsSensor::processInputEvent(const struct input_event& ev) {
     bool eventReported = false;
     
-    if (ev.type == EV_KEY && ev.code == BTN_INFO) {
-        bool pressed = (ev.value == 1);
-        if (pressed != mFingerPressed) {
-            mFingerPressed = pressed;
-            sendFodEvent(pressed, mScreenX, mScreenY);
-            eventReported = true;
+    // Handle fingerprint key events
+    if (ev.type == EV_KEY) {
+        bool isFingerprintKey = false;
+        
+        // Check for fingerprint-related key codes
+        if (ev.code == KEY_FINGERPRINT) {
+            isFingerprintKey = true;
+        } else if (ev.code == BTN_INFO) {
+            isFingerprintKey = true;
+        } else if (ev.code >= 0x100 && ev.code <= 0x12F) {
+            // BTN_* range
+            isFingerprintKey = true;
+        }
+        
+        if (isFingerprintKey) {
+            bool pressed = (ev.value == 1);
+            if (pressed != mFingerPressed) {
+                mFingerPressed = pressed;
+                sendFodEvent(pressed, mScreenX, mScreenY);
+                eventReported = true;
+            }
         }
     }
     
+    // Handle touch coordinates
     if (ev.type == EV_ABS) {
         if (ev.code == ABS_MT_POSITION_X) {
             mScreenX = ev.value;
