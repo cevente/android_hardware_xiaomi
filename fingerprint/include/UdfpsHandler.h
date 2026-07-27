@@ -26,13 +26,16 @@ class UdfpsHandler {
     virtual void onAuthenticationFailed() {};
     virtual void cancel() {};
 
-    // ✅ ADD THESE - Enrollment lifecycle methods
+    // Enrollment lifecycle methods
     virtual void preEnroll() {};
     virtual void enroll() {};
     virtual void postEnroll() {};
 
-    // ✅ ADD THIS - The new enrollment progress method
+    // Enrollment progress
     virtual void onEnrollmentProgress(int32_t enrollmentId, int32_t remaining) {};
+    
+    // ✅ Error callback for fingerprint errors
+    virtual void onError(int32_t error, int32_t vendorCode) {};
 };
 
 struct UdfpsHandlerFactory {
